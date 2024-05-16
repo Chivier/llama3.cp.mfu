@@ -11,16 +11,13 @@ from config import ModelArgs
 from tokenizer import Tokenizer
 from utils import load_parameters
 
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 np.set_printoptions(suppress=True)
 
 Shape = TypeVar("Shape")
 
 
-class Array(np.ndarray, Generic[Shape]):
-    ...
+class Array(np.ndarray, Generic[Shape]): ...
 
 
 def softmax(x):
@@ -32,8 +29,12 @@ def silu(x):
     return x * (1 / (1 + np.exp(-x)))
 
 
-def apply_rotary_emb(xq: Array["B, L or 1, QHN,  HD"], xk: Array["B, L or 1, KVHN, HD"],
-                     freqs_cos: Array["L or 1, HD//2"], freqs_sin: Array["L or 1, HD//2"]):
+def apply_rotary_emb(
+    xq: Array["B, L or 1, QHN,  HD"],
+    xk: Array["B, L or 1, KVHN, HD"],
+    freqs_cos: Array["L or 1, HD//2"],
+    freqs_sin: Array["L or 1, HD//2"],
+):
     xqri: Array["B, L or 1, QHN,  HD//2, 2"] = xq.reshape(xq.shape[:-1] + (-1, 2))
     xkri: Array["B, L or 1, KVHN, HD//2, 2"] = xk.reshape(xk.shape[:-1] + (-1, 2))
 
@@ -69,7 +70,12 @@ def repeat_kv(x: Array["B, L, KVHN, HD"], n_rep: int):
 
 
 class FeedForward:
-    def __init__(self, up_weight: Array["FD, D"], gate_weight: Array["FD, D"], down_weight: Array["D, FD"]):
+    def __init__(
+        self,
+        up_weight: Array["FD, D"],
+        gate_weight: Array["FD, D"],
+        down_weight: Array["D, FD"],
+    ):
         self.up_weight = up_weight.T
         self.gate_weight = gate_weight.T
         self.down_weight = down_weight.T
@@ -89,14 +95,20 @@ class RMSNorm:
         self.eps = eps
 
     def __call__(self, x: Array["B, L or 1, D"]):
-        z: Array["B, L or 1, 1"] = (x ** 2).mean(-1, keepdims=True) + self.eps
+        z: Array["B, L or 1, 1"] = (x**2).mean(-1, keepdims=True) + self.eps
         z: Array["B, L or 1, D"] = x / np.sqrt(z)
         return z * self.weight
 
 
 class Attention:
-    def __init__(self, q_weight: Array["D, D"], k_weight: Array["D, D"], v_weight: Array["D, D"],
-                 o_weight: Array["D, D"], args: ModelArgs):
+    def __init__(
+        self,
+        q_weight: Array["D, D"],
+        k_weight: Array["D, D"],
+        v_weight: Array["D, D"],
+        o_weight: Array["D, D"],
+        args: ModelArgs,
+    ):
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
         assert args.n_heads % self.n_kv_heads == 0
         self.n_local_heads = args.n_heads
@@ -109,11 +121,31 @@ class Attention:
         self.v_weight = v_weight.T
         self.o_weight = o_weight.T
 
-        self.cache_k = np.zeros((args.max_batch_size, args.max_seq_len, self.n_local_kv_heads, self.head_dim))
-        self.cache_v = np.zeros((args.max_batch_size, args.max_seq_len, self.n_local_kv_heads, self.head_dim))
+        self.cache_k = np.zeros(
+            (
+                args.max_batch_size,
+                args.max_seq_len,
+                self.n_local_kv_heads,
+                self.head_dim,
+            )
+        )
+        self.cache_v = np.zeros(
+            (
+                args.max_batch_size,
+                args.max_seq_len,
+                self.n_local_kv_heads,
+                self.head_dim,
+            )
+        )
 
-    def __call__(self, x: Array["B, L or 1, D"], start_pos: int, mask: Optional[Array["L, L"]],
-                 freqs_cos: Array["L or 1, HD//2"], freqs_sin: Array["L or 1, HD//2"]):
+    def __call__(
+        self,
+        x: Array["B, L or 1, D"],
+        start_pos: int,
+        mask: Optional[Array["L, L"]],
+        freqs_cos: Array["L or 1, HD//2"],
+        freqs_sin: Array["L or 1, HD//2"],
+    ):
         B, L, _ = x.shape
 
         # QKV
@@ -121,16 +153,22 @@ class Attention:
         xk: Array["B, L or 1, D"] = x @ self.k_weight
         xv: Array["B, L or 1, D"] = x @ self.v_weight
 
-        xq: Array["B, L or 1, QHN,  HD"] = xq.reshape(B, L, self.n_local_heads, self.head_dim)
-        xk: Array["B, L or 1, KVHN, HD"] = xk.reshape(B, L, self.n_local_kv_heads, self.head_dim)
-        xv: Array["B, L or 1, KVHN, HD"] = xv.reshape(B, L, self.n_local_kv_heads, self.head_dim)
+        xq: Array["B, L or 1, QHN,  HD"] = xq.reshape(
+            B, L, self.n_local_heads, self.head_dim
+        )
+        xk: Array["B, L or 1, KVHN, HD"] = xk.reshape(
+            B, L, self.n_local_kv_heads, self.head_dim
+        )
+        xv: Array["B, L or 1, KVHN, HD"] = xv.reshape(
+            B, L, self.n_local_kv_heads, self.head_dim
+        )
 
         # RoPE #2
         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
 
         # KV Cache
-        self.cache_k[:B, start_pos: start_pos + L] = xk
-        self.cache_v[:B, start_pos: start_pos + L] = xv
+        self.cache_k[:B, start_pos : start_pos + L] = xk
+        self.cache_v[:B, start_pos : start_pos + L] = xv
         ks: Array["B, L, KVHN, HD"] = self.cache_k[:B, : start_pos + L]
         vs: Array["B, L, KVHN, HD"] = self.cache_v[:B, : start_pos + L]
 
@@ -145,7 +183,9 @@ class Attention:
 
         # Scaled Dot-Product Attention
         # ["B, HN, L or 1, HD"] @ ["B, HN, HD, L"] -> ["B, HN, L or 1, L"]
-        attention: Array["B, HN, L or 1, L"] = xq @ xk.transpose(0, 1, 3, 2) / math.sqrt(self.head_dim)
+        attention: Array["B, HN, L or 1, L"] = (
+            xq @ xk.transpose(0, 1, 3, 2) / math.sqrt(self.head_dim)
+        )
         # `mask` is used only once at the beginning.
         if mask is not None:
             attention = attention + mask[None, None, :, :]
@@ -166,7 +206,7 @@ class TransformerBlock:
             weight.get(f"model.layers.{layer_id}.self_attn.k_proj.weight"),
             weight.get(f"model.layers.{layer_id}.self_attn.v_proj.weight"),
             weight.get(f"model.layers.{layer_id}.self_attn.o_proj.weight"),
-            args
+            args,
         )
         self.feed_forward = FeedForward(
             weight.get(f"model.layers.{layer_id}.mlp.up_proj.weight"),
@@ -175,19 +215,27 @@ class TransformerBlock:
         )
         self.input_layernorm = RMSNorm(
             weight.get(f"model.layers.{layer_id}.input_layernorm.weight"),
-            eps=args.norm_eps
+            eps=args.norm_eps,
         )
         self.post_attention_layernorm = RMSNorm(
             weight.get(f"model.layers.{layer_id}.post_attention_layernorm.weight"),
-            eps=args.norm_eps
+            eps=args.norm_eps,
         )
 
-    def __call__(self, x: Array["B, L or 1, D"], start_pos: int, mask: Array["L, L"],
-                 freqs_cos: Array["L or 1, HD//2"], freqs_sin: Array["L or 1, HD//2"]):
+    def __call__(
+        self,
+        x: Array["B, L or 1, D"],
+        start_pos: int,
+        mask: Array["L, L"],
+        freqs_cos: Array["L or 1, HD//2"],
+        freqs_sin: Array["L or 1, HD//2"],
+    ):
         # RMSNorm
         norm_x: Array["B, L or 1, D"] = self.input_layernorm(x)
         # Masked Multi-Head Attention
-        h1: Array["B, L or 1, D"] = self.attention(norm_x, start_pos, mask, freqs_cos, freqs_sin)
+        h1: Array["B, L or 1, D"] = self.attention(
+            norm_x, start_pos, mask, freqs_cos, freqs_sin
+        )
         z = x + h1
 
         # RMSNorm
@@ -209,7 +257,9 @@ class Llama:
         # RoPE #1
         base = 10000
         head_dim = args.dim // args.n_heads
-        inv_freq: Array["HD//2"] = 1.0 / (base ** (np.arange(0, head_dim, 2)[: (head_dim // 2)] / head_dim))
+        inv_freq: Array["HD//2"] = 1.0 / (
+            base ** (np.arange(0, head_dim, 2)[: (head_dim // 2)] / head_dim)
+        )
         t: Array["M"] = np.arange(args.max_seq_len)
         freqs: Array["M, HD//2"] = np.outer(t, inv_freq)
         self.freqs_cos: Array["M, HD//2"] = np.cos(freqs)
@@ -228,8 +278,8 @@ class Llama:
         _, L = input_ids.shape
         h: Array["B, L or 1, D"] = self.tok_embedding[input_ids]
         # ["M, HD//2"] -> ["L or 1, HD//2"]
-        freqs_cos: Array["L or 1, HD//2"] = self.freqs_cos[start_pos: start_pos + L]
-        freqs_sin: Array["L or 1, HD//2"] = self.freqs_sin[start_pos: start_pos + L]
+        freqs_cos: Array["L or 1, HD//2"] = self.freqs_cos[start_pos : start_pos + L]
+        freqs_sin: Array["L or 1, HD//2"] = self.freqs_sin[start_pos : start_pos + L]
 
         # `mask` is generated only once at the beginning.
         mask: Array["L, L"] = None
@@ -263,7 +313,7 @@ class Llama:
             yield next_id
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = ModelArgs()
 
     tokenizer = Tokenizer("./tokenizer.model.np")
@@ -286,4 +336,6 @@ if __name__ == '__main__':
         print(tokenizer.decode(output_id), end="")
         sys.stdout.flush()
     elapsed = time.time() - start
-    print(f"\n\nToken count: {L}, elapsed: {elapsed:.2f}s, {round(L / elapsed)} tokens/s")
+    print(
+        f"\n\nToken count: {L}, elapsed: {elapsed:.2f}s, {round(L / elapsed)} tokens/s"
+    )
