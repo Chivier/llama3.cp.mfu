@@ -1,10 +1,9 @@
 from typing import List
 import json
 
-
 class Tokenizer:
     def __init__(self, model_path: str):
-        with open(model_path, "r") as f:
+        with open(model_path, "r", encoding='utf-8') as f:
             model = json.load(f)
         self.vocab = model["tokens"]
         self.scores = model["scores"]
