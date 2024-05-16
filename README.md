@@ -28,7 +28,7 @@ Token count: 50, elapsed: 2.08s, 24 tokens/s
 
 ## Relevant aspects
 
-Changing from NumPy to CuPy, the performance is improved more than 2 times. Despite this fact, the performance can vary depending on the Hardware.
+Changing from NumPy to CuPy, the performance is improved more than 2 times. Despite this, the performance can vary depending on the Hardware. The results presented here were achieved using an RTX 4090.
 
 ## Installation
 
