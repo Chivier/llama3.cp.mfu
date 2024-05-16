@@ -1,4 +1,4 @@
-# llama3.np
+# llama3.cp
 
 `llama3.cp` is an adapted version of `llama3.np` (pure NumPy) that utilizes CuPy for GPU acceleration. The original implementation, written in pure NumPy, was created by [likejazz](https://github.com/likejazz/llama3.np).
 
